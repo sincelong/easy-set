@@ -120,13 +120,13 @@ fn save_configuration(config: &str) -> io::Result<()> {
 pub fn get_configuration(path: &str) -> Result<Vec<Configuration>, std::io::Error> {
     let mut configs: Vec<Configuration> = Vec::new();
 
-    let file_content = fs::read_to_string(path).expect(&format!("找不到文件 {path}"));
-    println!("{file_content}");
+    let file_content = fs::read_to_string(path).expect(&format!("找不到文件{path}"));
+    // println!("{file_content}");
     let toml_value = file_content
         .parse::<Table>()
         .expect("Parse {path} file error");
 
-    dbg!(&toml_value);
+    // dbg!(&toml_value);
 
     for (host_name, configuration) in toml_value {
         // let mut java_configuration: Vec<JavaConfiguration>  =  Vec::new();
@@ -261,7 +261,7 @@ fn add_config(config: &mut Configuration) {
                 .read_line(&mut input_string)
                 .expect("无法读取输入");
             input_string = input_string.trim().to_string().to_ascii_uppercase();
-            dbg!(&input_string);
+            // dbg!(&input_string);
 
             if input_string == "N" {
                 println!("请输入名称：");
@@ -299,7 +299,7 @@ fn set_config(config: &mut Configuration, idx: usize) -> Result<String, io::Erro
         java_path.into_os_string().into_string().unwrap(),
         path
     );
-    dbg!(&path);
+    // dbg!(&path);
     reg_path.set_value("Path", &path).unwrap();
 
     println!("添加环境变量{}成功", path);
@@ -333,8 +333,20 @@ pub fn config_to_toml(configs: &Vec<Configuration>) -> String {
 
         toml_table.insert(config.host_name.clone(), toml::Value::Table(config_table));
     }
-    dbg!(&toml_table);
+    // dbg!(&toml_table);
     toml_table.to_string()
+}
+
+fn delete_config(config: &mut Configuration, idx: u32 ) {
+
+    if idx + 1 > config.java_configuration.len() as u32 {
+        println!("下标 {} 超出配置文件长度 {}",idx ,  config.java_configuration.len() - 1);
+        return;
+    }
+
+    config.java_configuration.remove(idx as usize);
+    println!("配置{}删除成功", idx);
+
 }
 
 fn change_config(config: &mut Configuration) {
@@ -369,8 +381,8 @@ fn change_config(config: &mut Configuration) {
                     config.set_back();
 
                     set_config(config, menu_command.path_id as usize).unwrap();
-                }
-                Command::Del => print!("123"),
+                },
+                Command::Del => delete_config(config, menu_command.path_id),
                 Command::Show => print_config(config),
                 Command::Exit => break,
             },

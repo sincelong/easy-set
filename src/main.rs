@@ -4,7 +4,6 @@ mod configuration;
 
 fn main() {
     const FILE_NAME: &str = "configuration.toml";
-    println!("Hello, world!");
     let mut configs = get_configuration(FILE_NAME);
     match configs {
         Ok(mut configs) => {
