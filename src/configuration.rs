@@ -1,12 +1,16 @@
 use gethostname::gethostname;
 use prettytable::row;
 use serde::de::Error;
+use windows::core::{w, HSTRING, PCSTR, PCWSTR};
+use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
 use toml::Table;
 use winreg::RegKey;
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
+
+
 
 #[derive(Debug, Default, Clone)]
 pub struct JavaConfiguration {
@@ -28,7 +32,7 @@ impl Configuration {
     }
 
     fn set_back(&mut self) {
-        self.show_back();
+        // self.show_back();
 
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         let path: String = hklm
@@ -37,20 +41,20 @@ impl Configuration {
             .get_value("Path")
             .unwrap();
 
-        println!("当前系统环境变量备份为：");
-        println!("{}", &path);
+        // println!("当前系统环境变量备份为：");
+        // println!("{}", &path);
 
-        println!("是否备份当前环境变量: (Y:default/N)");
+        println!("是否备份当前环境变量: (Y/N:default)");
         let mut input_string = String::new();
 
         io::stdin()
             .read_line(&mut input_string)
             .expect("无法读取输入");
 
-        if input_string.trim() == "N" {
-            return;
-        } else {
+        if input_string.trim() == "Y" {
             self.back_path = path;
+        } else {
+            return;
         }
         println!("当前环境变量备份成功");
     }
@@ -151,10 +155,14 @@ pub fn get_configuration(path: &str) -> Result<Vec<Configuration>, std::io::Erro
 }
 
 fn get_current_host_config(configs: &mut Vec<Configuration>) -> Option<&mut Configuration> {
+    // dbg!(gethostname().into_string().unwrap());
     let host_name: String = gethostname()
         .into_string()
         .unwrap_or_else(|_e| "unkown_host".to_string());
-    println!("Can't Get Current host name ,use unkown_host as concurrent host");
+    if host_name == "unkown_host" {
+        println!("Can't Get Current host name ,use unkown_host as concurrent host");
+    }
+
 
     if configs
         .iter_mut()
@@ -199,7 +207,7 @@ fn get_current_path() -> String {
     reg_path.get_value("Path").unwrap()
 }
 
-fn check_current_java() -> String {
+fn check_current_java() -> Result<String, String> {
     let mut output = std::process::Command::new("java")
         .env("Path", get_current_path())
         .arg("-version")
@@ -212,7 +220,7 @@ fn check_current_java() -> String {
         Err(_e) => {
             println!("当前环境不存在JAVA程序");
 
-            return "当前环境不存在JAVA程序".to_string();
+           return  Err("当前环境不存在JAVA程序".to_string());
         }
     }
 
@@ -224,13 +232,16 @@ fn check_current_java() -> String {
         Ok(output) => {
             let output = String::from_utf8_lossy(&output.stdout).into_owned();
             println!("相关路径为:\n{}", &output);
+            if output.is_empty() {
+                return Err("无法获得当前环境中JAVA程序相关路径".to_string());
+            }
 
-            return output.split_whitespace().next().unwrap().to_string();
+           return Ok(output.split_whitespace().next().unwrap().to_string());
         }
         Err(_e) => {
             println!("无法获得当前环境中JAVA程序相关路径");
 
-            return "无法获得当前环境中JAVA程序相关路径".to_string();
+            return Err("无法获得当前环境中JAVA程序相关路径".to_string());
         }
     }
 }
@@ -303,8 +314,86 @@ fn add_config(config: &mut Configuration) {
     }
 }
 
+fn expand_environment(str:&str) -> String{
+
+    // println!("{}", str);
+
+
+    // println!("{}", str.encode_utf16().count());
+
+    let  mut  src = str.encode_utf16().collect::<Vec<u16>>();
+
+    src.push(0);
+
+
+
+    let src_pcwstr = PCWSTR::from_raw(src.as_ptr());
+
+
+
+    
+    let required_size = unsafe { 
+        ExpandEnvironmentStringsW(src_pcwstr, None)
+    };
+
+    // println!("需要空间为{}", required_size);
+    
+    if required_size == 0 {
+        println!("环境变量{}展开失败", str);
+        // Handle error
+        return str.to_string();
+    }
+    
+    // Allocate buffer of required size
+    let mut dst = vec![0u16; required_size as usize];
+
+    // Actually expand the string
+    let written = unsafe {
+        ExpandEnvironmentStringsW(src_pcwstr, Some(&mut dst))
+    };
+
+    // println!("写入字节数为{}", written);
+    // for x in &dst {
+    //     print!("{}", x);
+    // }
+
+    if written == 0 {
+        // Handle error
+        println!("环境变量{}展开失败", str);
+        return str.to_string();
+    }
+
+
+    let result = String::from_utf16_lossy(&dst[..required_size as usize-1]);
+
+    result
+
+}
+
 fn set_config(config: &mut Configuration, idx: usize) -> Result<String, io::Error> {
-    let config = config.java_configuration.get(idx).unwrap();
+    let set_config = config.java_configuration.get(idx).unwrap();
+
+    let mut  current_path:Vec<String> = get_current_path().split(';').into_iter().map(|f| expand_environment(f)).collect();
+    let current_java_path = check_current_java();
+
+    if current_java_path.is_err() {
+        let java_path = Path::new(&set_config.path).join("bin");
+        current_path.push(java_path.into_os_string().into_string().unwrap());
+    } else {
+        for  path in current_path.iter_mut() {
+
+            // println!("{} contain {}", path, &current_java_path.clone().unwrap());
+            if current_java_path.clone().unwrap().contains( &*path ) {
+                // println!("当前生效环境变量为 {}", path);
+                path.clear();
+                let java_path = Path::new(&set_config.path).join("bin");
+                path.push_str(java_path.into_os_string().into_string().unwrap().as_str());
+            }
+        }
+    }
+
+    let path  = current_path.join(";");
+
 
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let reg_path: RegKey = hklm
@@ -313,18 +402,13 @@ fn set_config(config: &mut Configuration, idx: usize) -> Result<String, io::Erro
             KEY_READ | KEY_WRITE,
         )
         .unwrap();
-    let mut path = reg_path.get_value("Path").unwrap();
-    let java_path = Path::new(&config.path).join("bin");
-    path = format!(
-        "{};{}",
-        java_path.into_os_string().into_string().unwrap(),
-        path
-    );
+    // let mut path = reg_path.get_value("Path").unwrap();
+
     // dbg!(&path);
     reg_path.set_value("Path", &path).unwrap();
 
-    println!("添加环境变量{}成功", path);
-    Ok("添加环境变量成功".to_string())
+    println!("设置环境变量{}成功", set_config.path);
+    Ok("设置环境变量成功".to_string())
 }
 
 pub fn config_to_toml(configs: &Vec<Configuration>) -> String {
@@ -393,6 +477,7 @@ fn recover_config(config: &Configuration) {
 fn change_config(config: &mut Configuration) {
     let mut input_string = String::new();
     loop {
+        print_config(config);
         println!("\n=== 命令行菜单 ===");
         println!("A\t 添加");
         println!("C No \t 修改目标ID为当前环境变量");
@@ -427,7 +512,7 @@ fn change_config(config: &mut Configuration) {
                 Command::Del => delete_config(config, menu_command.path_id),
                 Command::Show => {
                     print_config(config);
-                    println!("备份环境变量为:\n{}", &config.back_path);
+                    // println!("备份环境变量为:\n{}", &config.back_path);
                 }
                 Command::Recover => recover_config(config),
                 Command::Exit => break,
@@ -442,7 +527,7 @@ fn change_config(config: &mut Configuration) {
 
 pub fn core(configs: &mut Vec<Configuration>) {
     let config = get_current_host_config(configs).unwrap();
-    print_config(config);
+    // print_config(config);
     change_config(config);
     save_configuration(&config_to_toml(configs)).unwrap();
 }
