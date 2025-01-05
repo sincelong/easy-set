@@ -14,11 +14,6 @@ pub struct JavaConfiguration {
     pub path: String,
 }
 
-pub struct TomlConfiguration {
-    back_path: String,
-    java_configuration: Vec<JavaConfiguration>,
-}
-
 #[derive(Debug, Default)]
 pub struct Configuration {
     pub host_name: String,
@@ -68,6 +63,7 @@ enum Command {
     Del,
     Exit,
     Show,
+    Recover,
 }
 
 #[derive(Debug)]
@@ -90,6 +86,7 @@ impl MenuCommand {
             "D" => Command::Del,
             "E" => Command::Exit,
             "S" => Command::Show,
+            "R" => Command::Recover,
             _ => return Err("命令解析失败".to_string()),
         };
 
@@ -97,7 +94,7 @@ impl MenuCommand {
 
         if matches!(
             menu_command.command,
-            Command::Exit | Command::Show | Command::Add
+            Command::Exit | Command::Show | Command::Add | Command::Recover
         ) {
             return Ok(menu_command);
         }
@@ -144,7 +141,10 @@ pub fn get_configuration(path: &str) -> Result<Vec<Configuration>, std::io::Erro
         configs.push(Configuration {
             host_name,
             java_configuration,
-            back_path: configuration["back_path"].to_string(),
+            back_path: configuration["back_path"]
+                .to_string()
+                .trim_matches('\'')
+                .to_string(),
         });
     }
     Ok(configs)
@@ -183,10 +183,27 @@ fn print_config(config: &Configuration) {
     }
 
     table.printstd();
+
+    check_current_java();
 }
 
-fn check_current_java() {
-    let mut output = std::process::Command::new("java").arg("-version").output();
+fn get_current_path() -> String {
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let reg_path: RegKey = hklm
+        .open_subkey_with_flags(
+            "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+            KEY_READ | KEY_WRITE,
+        )
+        .unwrap();
+
+    reg_path.get_value("Path").unwrap()
+}
+
+fn check_current_java() -> String {
+    let mut output = std::process::Command::new("java")
+        .env("Path", get_current_path())
+        .arg("-version")
+        .output();
     match output {
         Ok(output) => {
             let output = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -194,21 +211,26 @@ fn check_current_java() {
         }
         Err(_e) => {
             println!("当前环境不存在JAVA程序");
-            return;
+
+            return "当前环境不存在JAVA程序".to_string();
         }
     }
 
     output = std::process::Command::new("where.exe")
+        .env("Path", get_current_path())
         .arg("java.exe")
         .output();
     match output {
         Ok(output) => {
             let output = String::from_utf8_lossy(&output.stdout).into_owned();
             println!("相关路径为:\n{}", &output);
+
+            return output.split_whitespace().next().unwrap().to_string();
         }
         Err(_e) => {
             println!("无法获得当前环境中JAVA程序相关路径");
-            return;
+
+            return "无法获得当前环境中JAVA程序相关路径".to_string();
         }
     }
 }
@@ -284,7 +306,6 @@ fn add_config(config: &mut Configuration) {
 fn set_config(config: &mut Configuration, idx: usize) -> Result<String, io::Error> {
     let config = config.java_configuration.get(idx).unwrap();
 
-    println!("aaaaaa");
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let reg_path: RegKey = hklm
         .open_subkey_with_flags(
@@ -337,16 +358,36 @@ pub fn config_to_toml(configs: &Vec<Configuration>) -> String {
     toml_table.to_string()
 }
 
-fn delete_config(config: &mut Configuration, idx: u32 ) {
-
+fn delete_config(config: &mut Configuration, idx: u32) {
     if idx + 1 > config.java_configuration.len() as u32 {
-        println!("下标 {} 超出配置文件长度 {}",idx ,  config.java_configuration.len() - 1);
+        println!(
+            "下标 {} 超出配置文件长度 {}",
+            idx,
+            config.java_configuration.len() - 1
+        );
         return;
     }
 
     config.java_configuration.remove(idx as usize);
     println!("配置{}删除成功", idx);
+}
 
+fn recover_config(config: &Configuration) {
+    println!("当前备份环境变量为:{}", config.back_path);
+    if !config.back_path.is_empty() {
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let reg_path: RegKey = hklm
+            .open_subkey_with_flags(
+                "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+                KEY_READ | KEY_WRITE,
+            )
+            .unwrap();
+        reg_path.set_value("Path", &config.back_path).unwrap();
+
+        println!("恢复备份环境变量成功");
+    } else {
+        println!("当前备份环境变量为空，无法恢复");
+    }
 }
 
 fn change_config(config: &mut Configuration) {
@@ -357,6 +398,7 @@ fn change_config(config: &mut Configuration) {
         println!("C No \t 修改目标ID为当前环境变量");
         println!("D No \t 删除");
         println!("E  \t 退出");
+        println!("R  \t 恢复为备份环境变量");
         println!("S  \t 显示路径信息");
         println!("请输入选项编号:");
 
@@ -381,9 +423,13 @@ fn change_config(config: &mut Configuration) {
                     config.set_back();
 
                     set_config(config, menu_command.path_id as usize).unwrap();
-                },
+                }
                 Command::Del => delete_config(config, menu_command.path_id),
-                Command::Show => print_config(config),
+                Command::Show => {
+                    print_config(config);
+                    println!("备份环境变量为:\n{}", &config.back_path);
+                }
+                Command::Recover => recover_config(config),
                 Command::Exit => break,
             },
             Err(err) => {
