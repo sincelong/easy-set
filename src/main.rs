@@ -1,10 +1,10 @@
-use configuration::{Configuration, config_to_toml, core, get_configuration};
+use configuration::{Configuration, core, get_configuration};
 
 mod configuration;
 
 fn main() {
     const FILE_NAME: &str = "configuration.toml";
-    let mut configs = get_configuration(FILE_NAME);
+    let configs = get_configuration(FILE_NAME);
     match configs {
         Ok(mut configs) => {
             // println!("{}", config_to_toml(&configs));
