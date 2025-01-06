@@ -1,0 +1,6 @@
+# .cargo/config.toml
+[unstable]
+trim-paths = true
+
+[profile.release]
+trim-paths = "all"

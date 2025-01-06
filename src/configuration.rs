@@ -1,3 +1,4 @@
+use ansi_term::Color;
 use gethostname::gethostname;
 use prettytable::row;
 use std::fs::{self};
@@ -211,7 +212,7 @@ fn check_current_java() -> Result<String, String> {
     match output {
         Ok(output) => {
             let output = String::from_utf8_lossy(&output.stderr).into_owned();
-            println!("当前JAVA版本是:{}", output.lines().next().unwrap());
+            println!("当前JAVA版本为:{}",  Color::Green.paint(output.lines().next().unwrap()));
         }
         Err(_e) => {
             println!("当前环境不存在JAVA程序");
@@ -255,7 +256,7 @@ fn check_java_version(path: &str) -> Result<String, String> {
                 .ok_or("JAVA 版本解析失败")?
                 .trim_matches('"');
 
-            println!("JAVA 版本为: {}", &version);
+            println!("JAVA 版本为: {}", Color::Green.paint(version));
             Ok(version.to_string())
         }
         Err(_e) => {
@@ -279,7 +280,7 @@ fn add_config(config: &mut Configuration) {
             println!("{e}");
         }
         Ok(mut version) => {
-            println!("是否使用程序解析版本名称 {} 添加 (Y:Default/N)", &version);
+            println!("是否使用程序解析版本名称 {} 添加 (Y:Default/N)", Color::Green.paint(version.clone()));
             input_string.clear();
             io::stdin()
                 .read_line(&mut input_string)
@@ -345,7 +346,7 @@ fn set_config(config: &mut Configuration, idx: usize) -> Result<String, io::Erro
         for path in current_path.iter_mut() {
             // println!("{} contain {}", path, &current_java_path.clone().unwrap());
             if current_java_path.clone().unwrap().contains(&*path) {
-                println!("当前生效环境变量为 {}", path);
+                println!("当前生效环境变量为 {}",  Color::Green.paint(&*path));
                 path.clear();
                 let java_path = Path::new(&set_config.path).join("bin");
                 path.push_str(java_path.into_os_string().into_string().unwrap().as_str());
